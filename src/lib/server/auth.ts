@@ -106,29 +106,49 @@ export async function getServerRateLimit(key: string): Promise<{
   return { isLocked: false, remainingSeconds: 0, attempts: row.attempts };
 }
 
-/** Increments failed login counter in PostgreSQL and locks after threshold. */
+/** Atomically increments failed login counter in PostgreSQL and locks after threshold. */
 export async function recordServerFailedLogin(
   key: string,
   ipAddress: string
 ): Promise<{ isLocked: boolean; remainingSeconds: number; attempts: number }> {
-  const current = await getServerRateLimit(key);
-  const attempts = current.attempts + 1;
-  const lockedUntil =
-    attempts >= RATE_LIMIT_MAX_ATTEMPTS
-      ? new Date(Date.now() + RATE_LIMIT_LOCKOUT_SECONDS * 1000)
-      : null;
-
-  await dbQuery(
+  const res = await dbQuery<{ attempts: number; locked_until: Date | null }>(
     `INSERT INTO login_rate_limits (key, attempts, locked_until, updated_at)
-     VALUES ($1, $2, $3, NOW())
+     VALUES (
+       $1,
+       1,
+       CASE WHEN 1 >= $2 THEN NOW() + ($3 * INTERVAL '1 second') ELSE NULL END,
+       NOW()
+     )
      ON CONFLICT (key) DO UPDATE
-       SET attempts = EXCLUDED.attempts,
-           locked_until = EXCLUDED.locked_until,
-           updated_at = NOW()`,
-    [key, attempts, lockedUntil]
+       SET attempts = CASE
+             WHEN login_rate_limits.locked_until IS NOT NULL AND login_rate_limits.locked_until <= NOW() THEN 1
+             WHEN login_rate_limits.locked_until IS NULL AND login_rate_limits.updated_at < NOW() - INTERVAL '15 minutes' THEN 1
+             ELSE login_rate_limits.attempts + 1
+           END,
+           locked_until = CASE
+             WHEN login_rate_limits.locked_until IS NOT NULL AND login_rate_limits.locked_until > NOW()
+               THEN login_rate_limits.locked_until
+             WHEN (
+               CASE
+                 WHEN login_rate_limits.locked_until IS NOT NULL AND login_rate_limits.locked_until <= NOW() THEN 1
+                 WHEN login_rate_limits.locked_until IS NULL AND login_rate_limits.updated_at < NOW() - INTERVAL '15 minutes' THEN 1
+                 ELSE login_rate_limits.attempts + 1
+               END
+             ) >= $2 THEN NOW() + ($3 * INTERVAL '1 second')
+             ELSE NULL
+           END,
+           updated_at = NOW()
+     RETURNING attempts, locked_until`,
+    [key, RATE_LIMIT_MAX_ATTEMPTS, RATE_LIMIT_LOCKOUT_SECONDS]
   );
 
-  if (lockedUntil) {
+  const row = res.rows[0];
+  const attempts = row?.attempts ?? 1;
+  const remainingMs = row?.locked_until ? new Date(row.locked_until).getTime() - Date.now() : 0;
+  const isLocked = remainingMs > 0;
+  const remainingSeconds = isLocked ? Math.ceil(remainingMs / 1000) : 0;
+
+  if (isLocked && attempts === RATE_LIMIT_MAX_ATTEMPTS) {
     await recordAuditLog({
       actor: "Security Engine",
       category: "Security",
@@ -139,8 +159,8 @@ export async function recordServerFailedLogin(
   }
 
   return {
-    isLocked: Boolean(lockedUntil),
-    remainingSeconds: lockedUntil ? RATE_LIMIT_LOCKOUT_SECONDS : 0,
+    isLocked,
+    remainingSeconds,
     attempts,
   };
 }

@@ -14,9 +14,15 @@ export function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const pathname = usePathname();
+  const [prevPathname, setPrevPathname] = useState(pathname);
   const { content } = useSiteContent();
   const meta = content.meta;
   const activeNavLinks = meta?.navLinks && meta.navLinks.length > 0 ? meta.navLinks : navLinks;
+
+  if (prevPathname !== pathname) {
+    setPrevPathname(pathname);
+    if (mobileOpen) setMobileOpen(false);
+  }
 
   // Scroll listener with useEffect
   useEffect(() => {
@@ -28,11 +34,6 @@ export function Navbar() {
     window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
-
-  // Close mobile menu on pathname change
-  useEffect(() => {
-    setMobileOpen(false);
-  }, [pathname]);
 
   if (pathname?.startsWith("/admin")) {
     return null;
@@ -74,7 +75,13 @@ export function Navbar() {
           {/* Center (desktop): Nav links with AnimatedBackground */}
           <div className="hidden md:flex items-center">
             <AnimatedBackground
-              defaultValue={pathname}
+              defaultValue={
+                activeNavLinks.find((l) =>
+                  l.href === "/"
+                    ? pathname === "/"
+                    : pathname === l.href || pathname?.startsWith(`${l.href}/`)
+                )?.href || pathname
+              }
               className="rounded-full bg-slate-100"
               transition={{
                 type: "spring",
@@ -84,7 +91,10 @@ export function Navbar() {
               enableHover
             >
               {activeNavLinks.map((link) => {
-                const isActive = pathname === link.href;
+                const isActive =
+                  link.href === "/"
+                    ? pathname === "/"
+                    : pathname === link.href || pathname?.startsWith(`${link.href}/`);
 
                 return (
                   <Link

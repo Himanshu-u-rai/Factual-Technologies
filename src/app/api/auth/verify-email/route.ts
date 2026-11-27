@@ -16,7 +16,10 @@ export async function POST(req: Request) {
       );
     }
 
-    const body = (await req.json()) as { token?: string };
+    const body = (await req.json().catch(() => null)) as { token?: string } | null;
+    if (!body || typeof body !== "object") {
+      return NextResponse.json({ error: "Invalid request payload." }, { status: 400 });
+    }
     const rawToken = typeof body.token === "string" ? body.token.trim() : "";
     if (!/^[a-f0-9]{64}$/i.test(rawToken)) {
       return NextResponse.json({ error: "Verification token is invalid or missing." }, { status: 400 });
@@ -110,8 +113,11 @@ export async function PUT(req: Request) {
       );
     }
 
-    const body = (await req.json()) as { email?: string };
-    const email = stripCrlf(sanitizeInput(body.email || "")).toLowerCase().slice(0, 160);
+    const body = (await req.json().catch(() => null)) as { email?: string } | null;
+    if (!body || typeof body !== "object") {
+      return NextResponse.json({ error: "Invalid request payload." }, { status: 400 });
+    }
+    const email = stripCrlf(sanitizeInput(typeof body.email === "string" ? body.email : "")).toLowerCase().slice(0, 160);
 
     const verifiedCheck = await dbQuery<{ cnt: number }>(
       "SELECT COUNT(*)::int AS cnt FROM admin_users WHERE email_verified = true"

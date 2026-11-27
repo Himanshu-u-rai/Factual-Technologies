@@ -17,25 +17,46 @@ function isPublicAdminPath(pathname: string): boolean {
   );
 }
 
+function resolveExpectedHosts(req: NextRequest): { requestHost: string; configuredHost: string } {
+  const hostHeader = (req.headers.get("host") || "").toLowerCase();
+  const trustProxy = process.env.TRUST_PROXY !== "false";
+  const forwardedHost = trustProxy ? (req.headers.get("x-forwarded-host") || "").toLowerCase() : "";
+
+  let configuredHost = "";
+  const appOrigin = (process.env.APP_ORIGIN || "").trim();
+  if (appOrigin) {
+    try {
+      configuredHost = new URL(appOrigin).host.toLowerCase();
+    } catch {
+      configuredHost = "";
+    }
+  }
+
+  return {
+    requestHost: forwardedHost || hostHeader,
+    configuredHost,
+  };
+}
+
 function isSameOriginMutation(req: NextRequest): boolean {
   const secFetchSite = req.headers.get("sec-fetch-site");
   if (secFetchSite === "cross-site") {
     return false;
   }
 
+  const { requestHost, configuredHost } = resolveExpectedHosts(req);
   const originHeader = req.headers.get("origin");
   if (!originHeader) {
-    // Non-browser API clients omit Origin; verify Referer only if supplied
+    // Non-browser API clients omit Origin; verify Referer if supplied
     const referer = req.headers.get("referer");
     if (!referer) return true;
     try {
       const refHost = new URL(referer).host.toLowerCase();
-      const expectedHost = (
-        req.headers.get("x-forwarded-host") ||
-        req.headers.get("host") ||
-        ""
-      ).toLowerCase();
-      return !expectedHost || refHost === expectedHost;
+      if (!requestHost && !configuredHost) return false;
+      return (
+        (Boolean(requestHost) && refHost === requestHost) ||
+        (Boolean(configuredHost) && refHost === configuredHost)
+      );
     } catch {
       return false;
     }
@@ -43,14 +64,10 @@ function isSameOriginMutation(req: NextRequest): boolean {
 
   try {
     const originHost = new URL(originHeader).host.toLowerCase();
-    const requestHost = (
-      req.headers.get("x-forwarded-host") ||
-      req.headers.get("host") ||
-      ""
-    ).toLowerCase();
-    const appOrigin = (process.env.APP_ORIGIN || "").trim();
-    const configuredHost = appOrigin ? new URL(appOrigin).host.toLowerCase() : "";
-    return originHost === requestHost || (Boolean(configuredHost) && originHost === configuredHost);
+    return (
+      (Boolean(requestHost) && originHost === requestHost) ||
+      (Boolean(configuredHost) && originHost === configuredHost)
+    );
   } catch {
     return false;
   }

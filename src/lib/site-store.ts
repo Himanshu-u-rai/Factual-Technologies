@@ -87,6 +87,7 @@ const storeSubscribers = new Set<() => void>();
 let externalListenersAttached = false;
 let bootstrapPromise: Promise<void> | null = null;
 let loadedScope: "none" | "public" | "admin" = "none";
+let localRevision = 0;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingReason: string | undefined;
 
@@ -135,7 +136,7 @@ export async function bootstrapSiteStore(force = false): Promise<void> {
   if (typeof window === "undefined") return;
   const desiredScope = getDesiredScope();
 
-  if (!force && bootstrapPromise && loadedScope === desiredScope) {
+  if (bootstrapPromise && loadedScope === desiredScope) {
     return bootstrapPromise;
   }
 
@@ -144,6 +145,7 @@ export async function bootstrapSiteStore(force = false): Promise<void> {
   }
 
   loadedScope = desiredScope;
+  const startRevision = localRevision;
   bootstrapPromise = (async () => {
     try {
       const endpoint =
@@ -172,7 +174,8 @@ export async function bootstrapSiteStore(force = false): Promise<void> {
         snapshots?: SiteSnapshot[];
       };
 
-      const nextContent = mergeSiteContent(data.content);
+      const nextContent =
+        localRevision === startRevision ? mergeSiteContent(data.content) : storeSnapshot.content;
       storeSnapshot = {
         status: "ready",
         content: nextContent,
@@ -196,10 +199,14 @@ export async function bootstrapSiteStore(force = false): Promise<void> {
   return bootstrapPromise;
 }
 
-/** Forces next hook mount or caller to re-read from Postgres cleanly. */
+/** Marks cached site content stale so next mounted view fetches fresh Postgres state cleanly. */
 export function invalidateSiteStore(): void {
   loadedScope = "none";
-  void bootstrapSiteStore(true);
+  storeSnapshot = {
+    ...storeSnapshot,
+    status: "hydrating",
+  };
+  emitStoreChange();
 }
 
 async function persistSiteContentToServer(content: FullSiteContent, reason?: string): Promise<void> {
@@ -222,6 +229,7 @@ function saveContent(
   content: FullSiteContent,
   options?: { immediate?: boolean; reason?: string }
 ): void {
+  localRevision += 1;
   storeSnapshot = {
     ...storeSnapshot,
     status: "ready",

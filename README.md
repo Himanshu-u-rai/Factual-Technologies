@@ -1,36 +1,48 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Factual Technologies
 
-## Getting Started
+Production software, cloud, and AI engineering studio platform built with **Next.js 16**, **React 19**, **Tailwind CSS v4**, and **PostgreSQL**.
 
-First, run the development server:
+## Local Development
+
+1. Copy `.env.example` to `.env` and set strong random values for `POSTGRES_PASSWORD`, `SESSION_SECRET`, and `SETUP_TOKEN`:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Start PostgreSQL locally:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+docker compose up -d postgres
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+3. Install dependencies and start the development server:
 
-## Learn More
+```bash
+npm install
+npm run dev
+```
 
-To learn more about Next.js, take a look at the following resources:
+Open `http://localhost:3000`. On first deploy, register the sole admin account at `/admin/setup` (protected by `SETUP_TOKEN` and single-use email verification).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Security & Quality Verification
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Run all local checks before committing or deploying:
 
-## Deploy on Vercel
+```bash
+npx tsc --noEmit
+npm run lint
+npm run security:check
+npm test
+npm run build
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+See [SECURITY.md](./SECURITY.md) and `public/.well-known/security.txt` for security controls and vulnerability disclosure details.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Production Container Build
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+`docker-compose.prod.yml` binds PostgreSQL strictly to the internal `factual_net` bridge network and exposes the Next.js standalone server on `127.0.0.1:3100:3000` for termination behind a TLS reverse proxy (Nginx/Caddy). Set `TRUST_PROXY="true"` when running behind a reverse proxy that sets `X-Real-IP` / `X-Forwarded-*`.

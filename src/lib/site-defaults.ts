@@ -112,6 +112,16 @@ export interface AboutValueContent {
   description: string;
 }
 
+export interface TeamMemberContent {
+  id: string;
+  name: string;
+  role: string;
+  bio: string;
+  specialties: string[];
+  linkedIn?: string;
+  github?: string;
+}
+
 export interface VisionMissionContent {
   visionTitle: string;
   visionText: string;
@@ -130,6 +140,7 @@ export interface AboutPageContent {
   narrativeParagraphs: string[];
   visionMission: VisionMissionContent;
   values: AboutValueContent[];
+  teamMembers?: TeamMemberContent[];
 }
 
 export interface ContactTimelineContent {
@@ -421,6 +432,29 @@ export const DEFAULT_SITE_CONTENT: FullSiteContent = {
           "Shared Slack channels, transparent repositories, and direct access to the engineers shipping the work.",
       },
     ],
+    teamMembers: [
+      {
+        id: "team-1",
+        name: "Priyanshu Rai",
+        role: "Principal Systems Architect",
+        bio: "Designs and ships production web platforms, permission-scoped AI retrieval systems, and multi-cloud Kubernetes infrastructure alongside client teams.",
+        specialties: ["AI Systems & RAG", "Distributed Architecture", "Cloud & DevSecOps"],
+      },
+      {
+        id: "team-2",
+        name: "Marcus Chen",
+        role: "VP of Engineering",
+        bio: "Specializes in multi-region database internals, zero-downtime Kafka migrations across AWS and GCP, and Kubernetes/Terraform delivery automation.",
+        specialties: ["Multi-Cloud Infrastructure", "Kafka & PostgreSQL", "Terraform IaC"],
+      },
+      {
+        id: "team-3",
+        name: "Sarah Lindqvist",
+        role: "Head of Product Innovation",
+        bio: "Architects TypeScript web portals, GraphQL API gateways, and offline-first React Native clients for operations and financial reporting teams.",
+        specialties: ["Next.js & TypeScript", "GraphQL APIs", "Offline-First Mobile"],
+      },
+    ],
   },
   contactPage: {
     heroBadge: "",
@@ -519,13 +553,14 @@ export const DEFAULT_SITE_CONTENT: FullSiteContent = {
       { id: "nav-1", label: "Home", href: "/" },
       { id: "nav-2", label: "Services", href: "/services" },
       { id: "nav-3", label: "Work", href: "/work" },
-      { id: "nav-4", label: "About", href: "/about" },
-      { id: "nav-5", label: "Contact", href: "/contact" },
+      { id: "nav-4", label: "Blog", href: "/blog" },
+      { id: "nav-5", label: "About", href: "/about" },
+      { id: "nav-6", label: "Contact", href: "/contact" },
     ],
     footerCapabilityLinks: [
-      { id: "fcap-1", label: "Digital Product Engineering", href: "/services" },
-      { id: "fcap-2", label: "AI Systems & Automation", href: "/services" },
-      { id: "fcap-3", label: "Cloud Infrastructure & Data", href: "/services" },
+      { id: "fcap-1", label: "Digital Product Engineering", href: "/services/digital-product-engineering" },
+      { id: "fcap-2", label: "AI Systems & Automation", href: "/services/ai-systems-automation" },
+      { id: "fcap-3", label: "Cloud Infrastructure & Data", href: "/services/cloud-infrastructure-data" },
     ],
   },
   ctaBanner: {
@@ -552,17 +587,40 @@ export function mergeSiteContent(parsed: Partial<FullSiteContent> | null | undef
       ...(parsed.hero?.waveConfig || {}),
     },
   };
+  const rawNavLinks =
+    parsed.meta?.navLinks && parsed.meta.navLinks.length > 0
+      ? parsed.meta.navLinks
+      : DEFAULT_SITE_CONTENT.meta.navLinks;
+  const hasBlogLink = rawNavLinks.some((l) => l.href === "/blog");
+  const normalizedNavLinks = hasBlogLink
+    ? rawNavLinks
+    : (() => {
+        const contactIdx = rawNavLinks.findIndex((l) => l.href === "/contact");
+        const blogItem: NavLinkContent = { id: "nav-blog", label: "Blog", href: "/blog" };
+        if (contactIdx >= 0) {
+          return [...rawNavLinks.slice(0, contactIdx), blogItem, ...rawNavLinks.slice(contactIdx)];
+        }
+        return [...rawNavLinks, blogItem];
+      })();
+
+  const rawCapabilities =
+    parsed.meta?.footerCapabilityLinks && parsed.meta.footerCapabilityLinks.length > 0
+      ? parsed.meta.footerCapabilityLinks
+      : DEFAULT_SITE_CONTENT.meta.footerCapabilityLinks;
+
   const mergedMeta = {
     ...DEFAULT_SITE_CONTENT.meta,
     ...(parsed.meta || {}),
-    navLinks:
-      parsed.meta?.navLinks && parsed.meta.navLinks.length > 0
-        ? parsed.meta.navLinks
-        : DEFAULT_SITE_CONTENT.meta.navLinks,
-    footerCapabilityLinks:
-      parsed.meta?.footerCapabilityLinks && parsed.meta.footerCapabilityLinks.length > 0
-        ? parsed.meta.footerCapabilityLinks
-        : DEFAULT_SITE_CONTENT.meta.footerCapabilityLinks,
+    navLinks: normalizedNavLinks,
+    footerCapabilityLinks: rawCapabilities.map((cap) => {
+      if (cap.href === "/services") {
+        const lower = cap.label.toLowerCase();
+        if (lower.includes("ai")) return { ...cap, href: "/services/ai-systems-automation" };
+        if (lower.includes("cloud") || lower.includes("data")) return { ...cap, href: "/services/cloud-infrastructure-data" };
+        if (lower.includes("product")) return { ...cap, href: "/services/digital-product-engineering" };
+      }
+      return cap;
+    }),
   };
   const mergedBanner = { ...DEFAULT_SITE_CONTENT.ctaBanner!, ...(parsed.ctaBanner || {}) };
 
@@ -610,6 +668,10 @@ export function mergeSiteContent(parsed: Partial<FullSiteContent> | null | undef
         ...(parsed.aboutPage?.visionMission || {}),
       },
       values: parsed.aboutPage?.values || DEFAULT_SITE_CONTENT.aboutPage.values,
+      teamMembers:
+        parsed.aboutPage?.teamMembers && parsed.aboutPage.teamMembers.length > 0
+          ? parsed.aboutPage.teamMembers
+          : DEFAULT_SITE_CONTENT.aboutPage.teamMembers,
     },
     contactPage: {
       ...DEFAULT_SITE_CONTENT.contactPage,

@@ -29,13 +29,17 @@ export async function POST(req: Request) {
   try {
     const ip = getClientIp(req);
     const ipKey = `ip:${ip}`;
-    const body = (await req.json()) as {
+    const body = (await req.json().catch(() => null)) as {
       email?: string;
       password?: string;
       remember?: boolean;
       challengeToken?: string;
       totpCode?: string;
-    };
+    } | null;
+
+    if (!body || typeof body !== "object") {
+      return NextResponse.json({ error: "Invalid request payload." }, { status: 400 });
+    }
 
     const ipRate = await getServerRateLimit(ipKey);
     if (ipRate.isLocked) {
@@ -44,7 +48,7 @@ export async function POST(req: Request) {
           error: `Too many failed attempts. Try again in ${ipRate.remainingSeconds} seconds.`,
           remainingSeconds: ipRate.remainingSeconds,
         },
-        { status: 429 }
+        { status: 429, headers: { "Retry-After": String(ipRate.remainingSeconds) } }
       );
     }
 
@@ -99,10 +103,13 @@ export async function POST(req: Request) {
           {
             error: fail.isLocked
               ? `Too many failed attempts. Try again in ${fail.remainingSeconds}s.`
-              : `Invalid verification code. ${Math.max(0, 5 - fail.attempts)} attempts remaining.`,
+              : "Invalid verification code.",
             remainingSeconds: fail.remainingSeconds,
           },
-          { status: fail.isLocked ? 429 : 401 }
+          {
+            status: fail.isLocked ? 429 : 401,
+            ...(fail.isLocked ? { headers: { "Retry-After": String(fail.remainingSeconds) } } : {}),
+          }
         );
       }
 
@@ -163,7 +170,7 @@ export async function POST(req: Request) {
           error: `Too many failed attempts. Try again in ${emailRate.remainingSeconds} seconds.`,
           remainingSeconds: emailRate.remainingSeconds,
         },
-        { status: 429 }
+        { status: 429, headers: { "Retry-After": String(emailRate.remainingSeconds) } }
       );
     }
 
@@ -195,10 +202,13 @@ export async function POST(req: Request) {
         {
           error: failIp.isLocked
             ? `Too many failed attempts. Try again in ${failIp.remainingSeconds}s.`
-            : `Invalid email or password. ${Math.max(0, 5 - failIp.attempts)} attempts remaining.`,
+            : "Invalid email or password.",
           remainingSeconds: failIp.remainingSeconds,
         },
-        { status: failIp.isLocked ? 429 : 401 }
+        {
+          status: failIp.isLocked ? 429 : 401,
+          ...(failIp.isLocked ? { headers: { "Retry-After": String(failIp.remainingSeconds) } } : {}),
+        }
       );
     }
 

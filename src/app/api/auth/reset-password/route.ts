@@ -16,7 +16,10 @@ export async function POST(req: Request) {
       );
     }
 
-    const body = (await req.json()) as { token?: string; password?: string };
+    const body = (await req.json().catch(() => null)) as { token?: string; password?: string } | null;
+    if (!body || typeof body !== "object") {
+      return NextResponse.json({ error: "Invalid request payload." }, { status: 400 });
+    }
     const rawToken = typeof body.token === "string" ? body.token.trim() : "";
     const password = typeof body.password === "string" ? body.password : "";
 
@@ -65,8 +68,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const ip = getClientIp(req);
-    await clearServerRateLimits([`ip:${ip}`, `email:${updatedUser.email}`]);
+    await clearServerRateLimits([`ip:${ip}`, `email:${updatedUser.email}`, `reset:ip:${ip}`]);
     await recordAuditLog({
       actor: `${updatedUser.name} (${updatedUser.email})`,
       category: "Security",

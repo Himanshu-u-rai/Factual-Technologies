@@ -6,10 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "rm -rf .tmp-test && npx tsc -p tsconfig.test.json && node --import ./tests/register-alias.mjs --test .tmp-test/tests/*.test.js",
+    "security:check": "node scripts/security-check.mjs"
   },
   "dependencies": {
-    "@types/three": "^0.187.0",
     "animejs": "^3.2.2",
     "clsx": "^2.1.1",
     "framer-motion": "^14.14.0",
@@ -22,8 +23,7 @@
     "react-icons": "^5.7.0",
     "react-use-measure": "^2.1.7",
     "server-only": "^0.0.1",
-    "tailwind-merge": "^3.7.1",
-    "three": "^0.187.0"
+    "tailwind-merge": "^3.7.1"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "4.3.3",

@@ -36,9 +36,24 @@ const commonSecurityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   poweredByHeader: false,
   cacheComponents: true,
   partialPrefetching: true,
+  async redirects() {
+    return [
+      {
+        source: "/insights",
+        destination: "/blog",
+        permanent: true,
+      },
+      {
+        source: "/insights/:slug",
+        destination: "/blog/:slug",
+        permanent: true,
+      },
+    ];
+  },
   async headers() {
     return [
       {

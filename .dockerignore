@@ -1,0 +1,15 @@
+node_modules
+.next
+.tmp-test
+.git
+.env
+.env.*
+!.env.example
+.agents
+.taste-skill
+tsconfig.tsbuildinfo
+*.log
+*.sql
+*.dump
+Dockerfile
+docker-compose*.yml

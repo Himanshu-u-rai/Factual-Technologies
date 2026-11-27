@@ -47,8 +47,14 @@ export function getAppOrigin(req?: Request): string {
   if (configured) return configured.replace(/\/+$/, "");
 
   if (req) {
-    const proto = (req.headers.get("x-forwarded-proto") || "http").replace(/[^a-z]/gi, "");
-    const rawHost = req.headers.get("x-forwarded-host") || req.headers.get("host") || "";
+    const trustProxy = process.env.TRUST_PROXY !== "false";
+    const proto = (
+      trustProxy ? req.headers.get("x-forwarded-proto") || "http" : "http"
+    ).replace(/[^a-z]/gi, "");
+    const rawHost =
+      (trustProxy ? req.headers.get("x-forwarded-host") : null) ||
+      req.headers.get("host") ||
+      "";
     const host = rawHost.replace(/[^a-zA-Z0-9.:-]/g, "");
     if (host) return `${proto || "http"}://${host}`;
   }
@@ -85,10 +91,14 @@ export async function sendEmail(opts: {
   }
 
   try {
+    const rejectUnauthorized = process.env.SMTP_TLS_REJECT_UNAUTHORIZED !== "false";
     const transporter = nodemailer.createTransport({
       host: status.host,
       port: status.port,
       secure: status.secure,
+      ...(process.env.SMTP_IGNORE_TLS === "true"
+        ? { ignoreTLS: true }
+        : { tls: { rejectUnauthorized } }),
       auth: status.hasAuth
         ? {
             user: process.env.SMTP_USER!.trim(),

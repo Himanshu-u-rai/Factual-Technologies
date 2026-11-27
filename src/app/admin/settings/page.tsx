@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback, useSyncExternalStore } from "react";
 import {
   Settings as SettingsIcon,
   ShieldCheck,
@@ -11,8 +11,6 @@ import {
   Save,
   Copy,
   Check,
-  Eye,
-  EyeOff,
   AlertTriangle,
   CheckCircle2,
   RefreshCcw,
@@ -55,31 +53,45 @@ type WebhookProbeState =
 
 type KeyActionState = "idle" | "saving" | "rotating";
 
+const emptySubscribe = () => () => {};
+
 export default function AdminSettingsPage() {
-  const [mounted, setMounted] = useState(false);
+  const mounted = useSyncExternalStore(emptySubscribe, () => true, () => false);
   const [activeTab, setActiveTab] = useState<SettingsTab>("all");
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Form State initialized from store
-  const [slaThreshold, setSlaThreshold] = useState<number>(99.99);
-  const [webhookUrl, setWebhookUrl] = useState<string>("");
-  const [apiKey, setApiKey] = useState<string>("");
-  const [alertEmail, setAlertEmail] = useState<string>("");
-  const [autoAssignEnabled, setAutoAssignEnabled] = useState<boolean>(true);
-  const [twoFactorRequired, setTwoFactorRequired] = useState<boolean>(false);
-  const [sessionTimeoutMinutes, setSessionTimeoutMinutes] = useState<number>(30);
-  const [complianceBadges, setComplianceBadges] = useState<SystemSettings["complianceBadges"]>([]);
-  const [rateLimitStatus, setRateLimitStatus] = useState<{ isLocked: boolean; remainingSeconds: number; attempts: number }>({
-    isLocked: false,
-    remainingSeconds: 0,
-    attempts: 0,
-  });
+  const [slaThreshold, setSlaThreshold] = useState<number>(() => getSettings().slaThreshold);
+  const [webhookUrl, setWebhookUrl] = useState<string>(() => getSettings().webhookUrl);
+  const [apiKeyPreview, setApiKeyPreview] = useState<string>(
+    () => getSettings().apiKeyPreview || getSettings().apiKey || ""
+  );
+  const [newlyGeneratedKey, setNewlyGeneratedKey] = useState<string | null>(null);
+  const [alertEmail, setAlertEmail] = useState<string>(() => getSettings().alertEmail);
+  const [autoAssignEnabled, setAutoAssignEnabled] = useState<boolean>(
+    () => getSettings().autoAssignEnabled
+  );
+  const [twoFactorRequired, setTwoFactorRequired] = useState<boolean>(
+    () => getSettings().twoFactorRequired || false
+  );
+  const [sessionTimeoutMinutes, setSessionTimeoutMinutes] = useState<number>(
+    () => getSettings().sessionTimeoutMinutes || 30
+  );
+  const [complianceBadges, setComplianceBadges] = useState<SystemSettings["complianceBadges"]>(
+    () => getSettings().complianceBadges
+  );
+  const [rateLimitStatus, setRateLimitStatus] = useState<{
+    isLocked: boolean;
+    remainingSeconds: number;
+    attempts: number;
+  }>(() => getRateLimitStatus());
 
   // Baseline stored values to track unsaved dirty changes
-  const [baselineSettings, setBaselineSettings] = useState<SystemSettings | null>(null);
+  const [baselineSettings, setBaselineSettings] = useState<SystemSettings | null>(
+    () => getSettings()
+  );
 
   // UI Interactive States
-  const [apiKeyMasked, setApiKeyMasked] = useState<boolean>(true);
   const [apiKeyCopied, setApiKeyCopied] = useState<boolean>(false);
   const [actionState, setActionState] = useState<KeyActionState>("idle");
   const [webhookProbe, setWebhookProbe] = useState<WebhookProbeState>({ status: "idle" });
@@ -89,13 +101,17 @@ export default function AdminSettingsPage() {
   const [resetConfirmInput, setResetConfirmInput] = useState<string>("");
 
   // Real TOTP 2FA & SMTP Diagnostic States
-  const [twoFactorEnabled, setTwoFactorEnabled] = useState<boolean>(false);
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState<boolean>(() =>
+    Boolean(getCurrentUser().twoFactorEnabled)
+  );
   const [totpSetup, setTotpSetup] = useState<{ secret: string; otpAuthUri: string } | null>(null);
   const [totpCodeInput, setTotpCodeInput] = useState<string>("");
   const [totpBusy, setTotpBusy] = useState<boolean>(false);
 
   const [smtpStatus, setSmtpStatus] = useState<SmtpStatusInfo>(() => getSmtpStatusClient());
-  const [smtpTestEmail, setSmtpTestEmail] = useState<string>("");
+  const [smtpTestEmail, setSmtpTestEmail] = useState<string>(
+    () => getCurrentUser().email || getSettings().alertEmail || ""
+  );
   const [smtpTesting, setSmtpTesting] = useState<boolean>(false);
   const [smtpTestResult, setSmtpTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
@@ -122,13 +138,12 @@ export default function AdminSettingsPage() {
   }, []);
 
   useEffect(() => {
-    setMounted(true);
     document.title = "System Governance & Security Settings | Factual Console";
     const applyBaseline = (s: SystemSettings) => {
       setBaselineSettings(s);
       setSlaThreshold(s.slaThreshold);
       setWebhookUrl(s.webhookUrl);
-      setApiKey(s.apiKey);
+      setApiKeyPreview(s.apiKeyPreview || s.apiKey || "");
       setAlertEmail(s.alertEmail);
       setAutoAssignEnabled(s.autoAssignEnabled);
       setTwoFactorRequired(s.twoFactorRequired || false);
@@ -136,22 +151,21 @@ export default function AdminSettingsPage() {
       setComplianceBadges(s.complianceBadges);
     };
 
-    const sync = (forceApply = false) => {
+    const sync = () => {
       const s = getSettings();
       const user = getCurrentUser();
       setRateLimitStatus(getRateLimitStatus());
       setSmtpStatus(getSmtpStatusClient());
       setTwoFactorEnabled(Boolean(user.twoFactorEnabled));
       setSmtpTestEmail((prev) => prev || user.email || s.alertEmail || "");
-      if (forceApply || !hasUnsavedChangesRef.current) {
+      if (!hasUnsavedChangesRef.current) {
         applyBaseline(s);
       } else {
         setBaselineSettings(s);
       }
     };
 
-    sync(true);
-    const unsub = subscribe(() => sync(false));
+    const unsub = subscribe(sync);
     return () => {
       unsub();
       clearPendingTimers();
@@ -170,7 +184,6 @@ export default function AdminSettingsPage() {
     return (
       slaThreshold !== baselineSettings.slaThreshold ||
       webhookUrl !== baselineSettings.webhookUrl ||
-      apiKey !== baselineSettings.apiKey ||
       alertEmail !== baselineSettings.alertEmail ||
       autoAssignEnabled !== baselineSettings.autoAssignEnabled ||
       twoFactorRequired !== baselineSettings.twoFactorRequired ||
@@ -180,7 +193,6 @@ export default function AdminSettingsPage() {
     baselineSettings,
     slaThreshold,
     webhookUrl,
-    apiKey,
     alertEmail,
     autoAssignEnabled,
     twoFactorRequired,
@@ -217,7 +229,6 @@ export default function AdminSettingsPage() {
     if (!baselineSettings) return;
     setSlaThreshold(baselineSettings.slaThreshold);
     setWebhookUrl(baselineSettings.webhookUrl);
-    setApiKey(baselineSettings.apiKey);
     setAlertEmail(baselineSettings.alertEmail);
     setAutoAssignEnabled(baselineSettings.autoAssignEnabled);
     setTwoFactorRequired(baselineSettings.twoFactorRequired || false);
@@ -244,7 +255,6 @@ export default function AdminSettingsPage() {
       const res = await updateSettings({
         slaThreshold: Number(slaThreshold),
         webhookUrl,
-        apiKey,
         alertEmail,
         autoAssignEnabled,
         twoFactorRequired,
@@ -272,28 +282,33 @@ export default function AdminSettingsPage() {
     showToast("Brute-force lockout counters cleared in PostgreSQL.");
   };
 
-  // Copy API Key handler
+  // Copy Newly Generated API Key handler (available once at rotation time)
   const handleCopyKey = () => {
-    navigator.clipboard.writeText(apiKey);
+    if (!newlyGeneratedKey) return;
+    navigator.clipboard.writeText(newlyGeneratedKey);
     if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
     setApiKeyCopied(true);
-    showToast("Production API key copied to clipboard");
-    copyTimerRef.current = setTimeout(() => setApiKeyCopied(false), 2000);
+    showToast("New API key copied to clipboard (it will not be shown again once dismissed).");
+    copyTimerRef.current = setTimeout(() => setApiKeyCopied(false), 2500);
   };
 
-  // Rotate API Key handler
+  // Rotate API Key handler (server stores only SHA-256 hash; plaintext returned once)
   const handleRotateKey = async () => {
     if (actionState !== "idle") return;
     setActionState("rotating");
     try {
-      const res = await runSettingsAction<{ apiKey?: string }>({ action: "generate_api_key" });
-      if (!res.ok || !res.apiKey) {
+      const res = await runSettingsAction<{ newlyGeneratedKey?: string; settings?: SystemSettings }>({
+        action: "generate_api_key",
+      });
+      if (!res.ok || !res.newlyGeneratedKey) {
         showToast(res.error || "Unable to rotate API key.");
         return;
       }
-      setApiKey(res.apiKey);
-      setBaselineSettings((prev) => (prev ? { ...prev, apiKey: res.apiKey! } : prev));
-      showToast("API key rotated and saved in PostgreSQL.");
+      setNewlyGeneratedKey(res.newlyGeneratedKey);
+      const preview = res.settings?.apiKeyPreview || `${res.newlyGeneratedKey.slice(0, 12)}••••••••${res.newlyGeneratedKey.slice(-4)}`;
+      setApiKeyPreview(preview);
+      setBaselineSettings((prev) => (prev ? { ...prev, apiKey: "", apiKeyPreview: preview } : prev));
+      showToast("New hashed API key generated. Copy it now before dismissing.");
     } finally {
       setActionState("idle");
     }
@@ -451,7 +466,8 @@ export default function AdminSettingsPage() {
     setBaselineSettings(s);
     setSlaThreshold(s.slaThreshold);
     setWebhookUrl(s.webhookUrl);
-    setApiKey(s.apiKey);
+    setApiKeyPreview(s.apiKeyPreview || "");
+    setNewlyGeneratedKey(null);
     setAlertEmail(s.alertEmail);
     setAutoAssignEnabled(s.autoAssignEnabled);
     setTwoFactorRequired(s.twoFactorRequired || false);
@@ -475,10 +491,8 @@ export default function AdminSettingsPage() {
     );
   }
 
-  // Masked string representation
-  const maskedDisplay = apiKey
-    ? `${apiKey.slice(0, 8)}${"•".repeat(Math.max(16, apiKey.length - 12))}${apiKey.slice(-4)}`
-    : "••••••••••••••••••••••••••••••••";
+  // Masked preview representation (server never returns plaintext secret keys after creation)
+  const maskedDisplay = apiKeyPreview || "No active API key configured";
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -696,7 +710,7 @@ export default function AdminSettingsPage() {
                       { minutes: 15, label: "15 min (Strict SOC2)" },
                       { minutes: 30, label: "30 min (Standard)" },
                       { minutes: 60, label: "60 min (Extended)" },
-                      { minutes: 120, label: "120 min (Dev)" },
+                      { minutes: 120, label: "120 min (Max)" },
                     ].map((opt) => (
                       <button
                         key={opt.minutes}
@@ -1094,71 +1108,82 @@ export default function AdminSettingsPage() {
             </div>
 
             <div className="space-y-4">
-              <div className="space-y-1.5">
+              <div className="space-y-2.5">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                    Production Secret Key
+                    Production Secret Key (Hashed at Rest)
                   </label>
                   <span className="text-xs text-emerald-700 font-semibold">
-                    Status: Active &amp; Authenticated
+                    {apiKeyPreview ? "Status: Active (SHA-256 Stored)" : "Status: Not Generated"}
                   </span>
                 </div>
 
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                   <div className="relative flex-1">
-                    <div className="min-h-[44px] px-3.5 py-2.5 text-sm font-mono rounded-xl border border-slate-200/70 bg-slate-50 text-slate-900 flex items-center justify-between">
-                      <span className="select-all">
-                        {apiKeyMasked ? maskedDisplay : apiKey}
+                    <div className="min-h-[44px] px-3.5 py-2.5 text-sm font-mono rounded-xl border border-slate-200/70 bg-slate-50 text-slate-700 flex items-center justify-between">
+                      <span>{maskedDisplay}</span>
+                      <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
+                        <Lock className="w-3.5 h-3.5" />
+                        <span>Write-only</span>
                       </span>
-                      <button
-                        onClick={() => setApiKeyMasked(!apiKeyMasked)}
-                        className="p-1 text-slate-400 hover:text-slate-600 rounded cursor-pointer focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:outline-none"
-                        aria-label={apiKeyMasked ? "Unmask API key" : "Mask API key"}
-                      >
-                        {apiKeyMasked ? (
-                          <Eye className="w-4 h-4" />
-                        ) : (
-                          <EyeOff className="w-4 h-4" />
-                        )}
-                      </button>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {/* Copy Key Button */}
-                    <button
-                      onClick={handleCopyKey}
-                      className="min-h-[44px] px-4 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-medium text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:outline-none"
-                    >
-                      {apiKeyCopied ? (
-                        <>
-                          <Check className="w-4 h-4 text-emerald-600" />
-                          <span>Copied</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-4 h-4" />
-                          <span>Copy Key</span>
-                        </>
-                      )}
-                    </button>
-
-                    {/* Rotate Key Button */}
                     <button
                       onClick={handleRotateKey}
                       disabled={isRotatingKey}
                       className="min-h-[44px] px-4 py-2.5 rounded-xl border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-800 font-medium text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:outline-none"
                     >
                       <RotateCw className={`w-3.5 h-3.5 ${isRotatingKey ? "animate-spin" : ""}`} />
-                      <span>{isRotatingKey ? "Rotating..." : "Rotate Key"}</span>
+                      <span>{isRotatingKey ? "Rotating..." : apiKeyPreview ? "Rotate Key" : "Generate Key"}</span>
                     </button>
                   </div>
                 </div>
 
+                {newlyGeneratedKey && (
+                  <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-emerald-950">
+                        Copy Your New API Key Now — Displayed Once Only
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setNewlyGeneratedKey(null)}
+                        className="text-xs font-semibold text-emerald-800 hover:text-emerald-950 underline cursor-pointer"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <code className="flex-1 px-3 py-2 rounded-lg bg-white border border-emerald-200 font-mono text-xs text-slate-900 break-all select-all">
+                        {newlyGeneratedKey}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={handleCopyKey}
+                        className="min-h-[40px] px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+                      >
+                        {apiKeyCopied ? (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Copied</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5" />
+                            <span>Copy Secret</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="p-3 bg-amber-50/70 border border-amber-200/70 rounded-xl text-xs text-amber-900 flex items-start gap-2.5">
                   <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                   <p className="leading-relaxed">
-                    Rotating this key takes effect immediately across all edge nodes. Any downstream worker services utilizing the old key will encounter HTTP 401 unauthorized errors until updated.
+                    Secret keys are stored strictly as SHA-256 digests in PostgreSQL and cannot be retrieved after generation. Rotating immediately invalidates any prior key.
                   </p>
                 </div>
               </div>

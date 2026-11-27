@@ -55,6 +55,8 @@ export interface AuditLog {
   details: string;
 }
 
+export type AnalyticsProvider = "none" | "ga4" | "plausible" | "umami";
+
 export interface SystemSettings {
   slaThreshold: number;
   webhookUrl: string;
@@ -65,6 +67,9 @@ export interface SystemSettings {
   autoAssignEnabled: boolean;
   twoFactorRequired: boolean;
   sessionTimeoutMinutes: number;
+  indexNowKey?: string;
+  analyticsProvider?: AnalyticsProvider;
+  analyticsId?: string;
   complianceBadges: {
     name: string;
     code: string;
@@ -99,7 +104,7 @@ export interface RateLimitState {
 }
 
 export const ARCHITECTS = [
-  { name: "Elena Rostova", role: "Chief Technology Officer", initials: "ER" },
+  { name: "Priyanshu Rai", role: "Principal Systems Architect", initials: "PR" },
   { name: "Marcus Chen", role: "VP of Engineering", initials: "MC" },
   { name: "Sarah Lindqvist", role: "Head of Product Innovation", initials: "SL" },
 ];
@@ -200,6 +205,9 @@ export const INITIAL_SETTINGS: SystemSettings = {
   autoAssignEnabled: true,
   twoFactorRequired: false,
   sessionTimeoutMinutes: 30,
+  indexNowKey: "",
+  analyticsProvider: "none",
+  analyticsId: "",
   complianceBadges: [
     { name: "SOC2 Type II", code: "SOC2-T2", status: "Certified", auditDate: "Oct 2026" },
     { name: "HIPAA Compliant", code: "HIPAA-HITECH", status: "Compliant", auditDate: "Sep 2026" },

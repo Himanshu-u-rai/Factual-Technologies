@@ -8,6 +8,8 @@ import {
   mapRowToCaseStudy,
 } from "@/lib/server/content";
 import { DbProjectRow } from "@/lib/server/content";
+import { getCaseStudySlug } from "@/lib/seo-pillars";
+import { submitUrlsToIndexNow } from "@/lib/server/indexnow";
 import { CaseStudy, ProjectCategory, sanitizeInput, sanitizeSafeUrl } from "@/lib/admin-types";
 
 function normalizeCategory(value?: string): ProjectCategory {
@@ -86,8 +88,17 @@ export async function POST(req: Request) {
   void loadMergedSiteContent;
   void loadSiteSnapshots;
 
+  const created = mapRowToCaseStudy(inserted.rows[0]);
+  if (created.published) {
+    void submitUrlsToIndexNow(["/work", `/work/${getCaseStudySlug(created)}`, "/sitemap.xml"], {
+      actor: auth.admin.email,
+      ipAddress: getClientIp(req),
+      quiet: true,
+    });
+  }
+
   return NextResponse.json(
-    { ok: true, project: mapRowToCaseStudy(inserted.rows[0]) },
+    { ok: true, project: created },
     { status: 201 }
   );
 }

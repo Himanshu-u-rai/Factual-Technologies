@@ -1,5 +1,6 @@
 import "server-only";
 
+import crypto from "crypto";
 import { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
 import {
   AuditLog,
@@ -8,6 +9,9 @@ import {
   INITIAL_SETTINGS,
   sanitizeInput,
 } from "@/lib/admin-types";
+import { INITIAL_ARTICLES } from "@/lib/articles-shared";
+import { ARTICLES_2027 } from "@/lib/articles-2027";
+import { ARTICLES_LATEST_2026 } from "@/lib/articles-latest-2026";
 import { DEFAULT_SITE_CONTENT } from "@/lib/site-defaults";
 
 declare global {
@@ -145,6 +149,46 @@ const SCHEMA_SQL = `
     data JSONB NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
+
+  CREATE TABLE IF NOT EXISTS articles (
+    id TEXT PRIMARY KEY,
+    slug TEXT UNIQUE NOT NULL,
+    title TEXT NOT NULL,
+    subtitle TEXT NOT NULL DEFAULT '',
+    excerpt TEXT NOT NULL,
+    content_markdown TEXT NOT NULL,
+    category TEXT NOT NULL,
+    tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+    cover_image TEXT NOT NULL DEFAULT '/blog/enterprise-rag-2027.jpg',
+    cover_image_alt TEXT NOT NULL DEFAULT '',
+    author_name TEXT NOT NULL,
+    author_role TEXT NOT NULL DEFAULT '',
+    author_bio TEXT NOT NULL DEFAULT '',
+    author_linkedin TEXT NOT NULL DEFAULT '',
+    meta_title TEXT NOT NULL DEFAULT '',
+    meta_description TEXT NOT NULL DEFAULT '',
+    canonical_url TEXT NOT NULL DEFAULT '',
+    focus_keyword TEXT NOT NULL DEFAULT '',
+    faqs JSONB NOT NULL DEFAULT '[]'::jsonb,
+    status TEXT NOT NULL DEFAULT 'draft',
+    featured BOOLEAN NOT NULL DEFAULT false,
+    reading_time_minutes INTEGER NOT NULL DEFAULT 1,
+    word_count INTEGER NOT NULL DEFAULT 0,
+    view_count INTEGER NOT NULL DEFAULT 0,
+    published_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_articles_status_pub ON articles(status, published_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_articles_slug ON articles(slug);
+
+  CREATE TABLE IF NOT EXISTS referral_stats (
+    day DATE NOT NULL DEFAULT CURRENT_DATE,
+    path TEXT NOT NULL,
+    source_domain TEXT NOT NULL DEFAULT 'direct',
+    views INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (day, path, source_domain)
+  );
 `;
 
 async function initializeDatabase(client: PoolClient): Promise<void> {
@@ -212,13 +256,78 @@ async function initializeDatabase(client: PoolClient): Promise<void> {
       }
     }
 
-    // Seed baseline settings
-    const settingsCheck = await client.query("SELECT 1 FROM system_settings WHERE id = 'default'");
+    // Seed baseline settings with an IndexNow key if missing
+    const settingsCheck = await client.query<{ data: Record<string, unknown> }>(
+      "SELECT data FROM system_settings WHERE id = 'default'"
+    );
     if (settingsCheck.rowCount === 0) {
       await client.query(
         "INSERT INTO system_settings (id, data) VALUES ('default', $1::jsonb)",
-        [JSON.stringify(INITIAL_SETTINGS)]
+        [
+          JSON.stringify({
+            ...INITIAL_SETTINGS,
+            indexNowKey: crypto.randomBytes(16).toString("hex"),
+          }),
+        ]
       );
+    } else if (!settingsCheck.rows[0]?.data?.indexNowKey) {
+      const nextKey = crypto.randomBytes(16).toString("hex");
+      await client.query(
+        `UPDATE system_settings
+         SET data = jsonb_set(data, '{indexNowKey}', to_jsonb($1::text), true),
+             updated_at = NOW()
+         WHERE id = 'default'`,
+        [nextKey]
+      );
+    }
+
+    // Seed baseline engineering blog guides only on empty articles table
+    const articlesCheck = await client.query("SELECT COUNT(*)::int AS cnt FROM articles");
+    if ((articlesCheck.rows[0]?.cnt ?? 0) === 0) {
+      for (const art of [...ARTICLES_LATEST_2026, ...ARTICLES_2027, ...INITIAL_ARTICLES]) {
+        await client.query(
+          `INSERT INTO articles (
+            id, slug, title, subtitle, excerpt, content_markdown, category, tags,
+            cover_image, cover_image_alt, author_name, author_role, author_bio, author_linkedin,
+            meta_title, meta_description, canonical_url, focus_keyword, faqs, status, featured,
+            reading_time_minutes, word_count, view_count, published_at, created_at, updated_at
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8::jsonb,
+            $9, $10, $11, $12, $13, $14,
+            $15, $16, $17, $18, $19::jsonb, $20, $21,
+            $22, $23, $24, $25::timestamptz, $26::timestamptz, $27::timestamptz
+          ) ON CONFLICT (slug) DO NOTHING`,
+          [
+            art.id,
+            art.slug,
+            art.title,
+            art.subtitle,
+            art.excerpt,
+            art.contentMarkdown,
+            art.category,
+            JSON.stringify(art.tags),
+            art.coverImage,
+            art.coverImageAlt,
+            art.authorName,
+            art.authorRole,
+            art.authorBio,
+            art.authorLinkedIn || "",
+            art.metaTitle,
+            art.metaDescription,
+            art.canonicalUrl || "",
+            art.focusKeyword,
+            JSON.stringify(art.faqs),
+            art.status,
+            art.featured,
+            art.readingTimeMinutes,
+            art.wordCount,
+            art.viewCount,
+            art.publishedAt,
+            art.createdAt,
+            art.updatedAt,
+          ]
+        );
+      }
     }
 
     // Seed initial audit record

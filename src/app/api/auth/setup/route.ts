@@ -42,12 +42,16 @@ export async function POST(req: Request) {
       );
     }
 
-    const body = (await req.json()) as {
+    const body = (await req.json().catch(() => null)) as {
       name?: string;
       email?: string;
       password?: string;
       setupToken?: string;
-    };
+    } | null;
+
+    if (!body || typeof body !== "object") {
+      return NextResponse.json({ error: "Invalid request payload." }, { status: 400 });
+    }
 
     const name = stripCrlf(sanitizeInput(body.name || "")).slice(0, 120);
     const email = stripCrlf(sanitizeInput(body.email || "")).toLowerCase().slice(0, 160);

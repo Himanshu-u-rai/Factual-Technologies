@@ -17,55 +17,68 @@ export async function enforceFixedWindowRateLimit(
   maxRequests: number,
   windowSeconds: number
 ): Promise<RateLimitCheck> {
-  const existing = await dbQuery<{ attempts: number; locked_until: Date | null; updated_at: Date }>(
-    "SELECT attempts, locked_until, updated_at FROM login_rate_limits WHERE key = $1",
-    [key]
-  );
+  const safeMax = Math.max(1, Math.floor(maxRequests));
+  const safeWindow = Math.max(1, Math.floor(windowSeconds));
 
-  const nowMs = Date.now();
-  const row = existing.rows[0];
-
-  if (row?.locked_until) {
-    const lockedUntilMs = new Date(row.locked_until).getTime();
-    if (lockedUntilMs > nowMs) {
-      return {
-        allowed: false,
-        attempts: row.attempts,
-        remainingSeconds: Math.ceil((lockedUntilMs - nowMs) / 1000),
-      };
-    }
-  }
-
-  const windowExpired =
-    !row ||
-    (row.locked_until && new Date(row.locked_until).getTime() <= nowMs) ||
-    nowMs - new Date(row.updated_at).getTime() > windowSeconds * 1000;
-
-  const nextAttempts = windowExpired ? 1 : row.attempts + 1;
-  const lockedUntil =
-    nextAttempts > maxRequests ? new Date(nowMs + windowSeconds * 1000) : null;
-
-  await dbQuery(
+  const res = await dbQuery<{
+    attempts: number;
+    locked_until: Date | null;
+    was_already_locked: boolean;
+  }>(
     `INSERT INTO login_rate_limits (key, attempts, locked_until, updated_at)
-     VALUES ($1, $2, $3, NOW())
+     VALUES (
+       $1,
+       1,
+       CASE WHEN 1 > $2 THEN NOW() + ($3 * INTERVAL '1 second') ELSE NULL END,
+       NOW()
+     )
      ON CONFLICT (key) DO UPDATE
-       SET attempts = EXCLUDED.attempts,
-           locked_until = EXCLUDED.locked_until,
-           updated_at = NOW()`,
-    [key, nextAttempts, lockedUntil]
+       SET attempts = CASE
+             WHEN login_rate_limits.locked_until IS NOT NULL AND login_rate_limits.locked_until > NOW()
+               THEN login_rate_limits.attempts
+             WHEN login_rate_limits.locked_until IS NOT NULL AND login_rate_limits.locked_until <= NOW()
+               THEN 1
+             WHEN login_rate_limits.updated_at < NOW() - ($3 * INTERVAL '1 second')
+               THEN 1
+             ELSE login_rate_limits.attempts + 1
+           END,
+           locked_until = CASE
+             WHEN login_rate_limits.locked_until IS NOT NULL AND login_rate_limits.locked_until > NOW()
+               THEN login_rate_limits.locked_until
+             WHEN (
+               CASE
+                 WHEN login_rate_limits.locked_until IS NOT NULL AND login_rate_limits.locked_until <= NOW() THEN 1
+                 WHEN login_rate_limits.updated_at < NOW() - ($3 * INTERVAL '1 second') THEN 1
+                 ELSE login_rate_limits.attempts + 1
+               END
+             ) > $2 THEN NOW() + ($3 * INTERVAL '1 second')
+             ELSE NULL
+           END,
+           updated_at = CASE
+             WHEN login_rate_limits.locked_until IS NOT NULL AND login_rate_limits.locked_until > NOW()
+               THEN login_rate_limits.updated_at
+             ELSE NOW()
+           END
+     RETURNING
+       attempts,
+       locked_until,
+       (locked_until IS NOT NULL AND locked_until > NOW()) AS was_already_locked`,
+    [key, safeMax, safeWindow]
   );
 
-  if (lockedUntil) {
+  const row = res.rows[0];
+  if (row?.was_already_locked && row.locked_until) {
+    const remainingMs = new Date(row.locked_until).getTime() - Date.now();
     return {
       allowed: false,
-      attempts: nextAttempts,
-      remainingSeconds: windowSeconds,
+      attempts: row.attempts,
+      remainingSeconds: Math.max(1, Math.ceil(remainingMs / 1000)),
     };
   }
 
   return {
     allowed: true,
-    attempts: nextAttempts,
+    attempts: row?.attempts ?? 1,
     remainingSeconds: 0,
   };
 }

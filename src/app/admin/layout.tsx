@@ -37,6 +37,7 @@ import {
   Mail,
   History,
   Phone,
+  BookOpen,
 } from "lucide-react";
 import {
   isAuthenticated,
@@ -82,6 +83,17 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   // Website Controller Dropdown State & Active Tab Sync
   const [websiteControllerOpen, setWebsiteControllerOpen] = useState(true);
   const [currentTab, setCurrentTab] = useState<string>("hero");
+  const [prevPathname, setPrevPathname] = useState(pathname);
+
+  if (prevPathname !== pathname) {
+    setPrevPathname(pathname);
+    if (pathname === "/admin" && !websiteControllerOpen) {
+      setWebsiteControllerOpen(true);
+    }
+    if (activeOverlay === "mobile_drawer") {
+      setActiveOverlay("none");
+    }
+  }
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -107,10 +119,6 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     syncCurrentTab();
     window.addEventListener("popstate", syncCurrentTab);
     window.addEventListener("admin-tab-change", handleTabEvent);
-
-    if (pathname === "/admin") {
-      setWebsiteControllerOpen(true);
-    }
 
     return () => {
       document.documentElement.classList.remove("admin-viewport");
@@ -147,7 +155,11 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setActiveOverlay((prev) => (prev === "command_palette" ? "none" : "command_palette"));
+        setActiveOverlay((prev) => {
+          if (prev === "command_palette") return "none";
+          setPaletteQuery("");
+          return "command_palette";
+        });
       } else if (
         e.key === "Escape" &&
         (activeOverlay === "command_palette" ||
@@ -165,8 +177,8 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   // Focus palette input on open
   useEffect(() => {
     if (commandPaletteOpen) {
-      setPaletteQuery("");
-      setTimeout(() => paletteInputRef.current?.focus(), 50);
+      const timer = setTimeout(() => paletteInputRef.current?.focus(), 50);
+      return () => clearTimeout(timer);
     }
   }, [commandPaletteOpen]);
 
@@ -290,11 +302,6 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     setCountdownSeconds(60);
   };
 
-  // Close mobile sidebar on route transition
-  useEffect(() => {
-    setActiveOverlay((prev) => (prev === "mobile_drawer" ? "none" : prev));
-  }, [pathname]);
-
   const handleRequestLogout = () => {
     setActiveOverlay("logout_confirm");
   };
@@ -398,6 +405,13 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
       exact: false,
     },
     {
+      label: "Blog & Articles CMS",
+      href: "/admin/blog",
+      icon: BookOpen,
+      badge: "SEO",
+      exact: false,
+    },
+    {
       label: "Inbound Messages",
       href: "/admin/inquiries",
       icon: Inbox,
@@ -439,6 +453,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     }
     if (pathname.startsWith("/admin/inquiries")) return ["Console", "Inbound Messages & Inquiries"];
     if (pathname.startsWith("/admin/projects")) return ["Console", "Case Studies CMS"];
+    if (pathname.startsWith("/admin/blog")) return ["Console", "Blog & Editorial CMS"];
     if (pathname.startsWith("/admin/settings")) return ["Console", "System Governance & Settings"];
     if (pathname.startsWith("/admin/audit-logs")) return ["Console", "SOC2 Audit Trail & Logs"];
     return ["Console", "Overview"];
@@ -474,6 +489,14 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
         description: "Create, edit, tag, and publish portfolio case studies",
         icon: FolderKanban,
         action: () => router.push("/admin/projects"),
+      },
+      {
+        category: "Navigation",
+        id: "nav-blog",
+        title: "Blog & Editorial Articles CMS",
+        description: "Write Markdown guides, optimize SEO/AEO FAQs, and ping IndexNow",
+        icon: BookOpen,
+        action: () => router.push("/admin/blog"),
       },
       {
         category: "Navigation",

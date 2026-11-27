@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useMemo, Suspense, useCallback, useRef } from "react";
+import React, { useEffect, useState, useMemo, Suspense, useCallback, useRef, useSyncExternalStore } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   Inbox,
@@ -102,12 +102,14 @@ function formatFullDateTime(dateString: string): string {
   }
 }
 
+const emptySubscribe = () => () => {};
+
 function InquiriesContent() {
   const searchParams = useSearchParams();
 
   // Primary data state
-  const [inquiries, setInquiries] = useState<Inquiry[]>([]);
-  const [mounted, setMounted] = useState(false);
+  const [inquiries, setInquiries] = useState<Inquiry[]>(() => getInquiries());
+  const mounted = useSyncExternalStore(emptySubscribe, () => true, () => false);
 
   // Filters & Search
   const [activeTab, setActiveTab] = useState<InquiryStatus | "All">("All");
@@ -158,15 +160,41 @@ function InquiriesContent() {
     };
   }, []);
 
+  const initialId = searchParams.get("id");
+  const [prevDeepLinkKey, setPrevDeepLinkKey] = useState<string>("");
+
+  const deepLinkKey = mounted && initialId ? `${initialId}:${inquiries.length}` : "";
+  if (deepLinkKey && prevDeepLinkKey !== deepLinkKey) {
+    setPrevDeepLinkKey(deepLinkKey);
+    const match = inquiries.find((i) => i.id === initialId);
+    if (match) {
+      setOverlay({ mode: "drawer", inquiryId: match.id, confirmingDelete: false });
+    }
+  }
+
+  // Close drawer & update URL
+  const handleCloseDrawer = useCallback(() => {
+    setOverlay({ mode: "idle" });
+    setCopiedEmail(false);
+    if (copiedEmailTimerRef.current) {
+      clearTimeout(copiedEmailTimerRef.current);
+      copiedEmailTimerRef.current = null;
+    }
+    setNoteText("");
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("id");
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, []);
+
   // Sync with store
   useEffect(() => {
-    setMounted(true);
     document.title = "Inbound Messages & Architect CRM | Factual Console";
     const syncData = () => {
       setInquiries(getInquiries());
     };
 
-    syncData();
     const unsub = subscribe(syncData);
     return () => unsub();
   }, []);
@@ -180,19 +208,7 @@ function InquiriesContent() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [overlay.mode]);
-
-  // Handle URL deep-linking (?id=INQ-XXXX)
-  useEffect(() => {
-    if (!mounted) return;
-    const initialId = searchParams.get("id");
-    if (initialId) {
-      const match = getInquiries().find((i) => i.id === initialId);
-      if (match) {
-        setOverlay({ mode: "drawer", inquiryId: match.id, confirmingDelete: false });
-      }
-    }
-  }, [mounted, searchParams]);
+  }, [overlay.mode, handleCloseDrawer]);
 
   // Open drawer & update URL
   const handleOpenDrawer = (inquiry: Inquiry) => {
@@ -205,33 +221,27 @@ function InquiriesContent() {
     }
   };
 
-  // Close drawer & update URL
-  const handleCloseDrawer = () => {
-    setOverlay({ mode: "idle" });
-    setCopiedEmail(false);
-    if (copiedEmailTimerRef.current) {
-      clearTimeout(copiedEmailTimerRef.current);
-      copiedEmailTimerRef.current = null;
-    }
-    setNoteText("");
-    if (typeof window !== "undefined") {
-      const url = new URL(window.location.href);
-      url.searchParams.delete("id");
-      window.history.replaceState({}, "", url.toString());
-    }
-  };
-
   // Get currently active inquiry from store (auto-close if deleted externally)
   const activeInquiry = useMemo(() => {
     if (overlay.mode !== "drawer") return null;
     return inquiries.find((i) => i.id === overlay.inquiryId) || null;
   }, [inquiries, overlay]);
 
+  if (overlay.mode === "drawer" && mounted && !activeInquiry) {
+    setOverlay({ mode: "idle" });
+    setCopiedEmail(false);
+    setNoteText("");
+  }
+
   useEffect(() => {
-    if (overlay.mode === "drawer" && mounted && !activeInquiry) {
-      handleCloseDrawer();
+    if (overlay.mode !== "drawer" && typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has("id")) {
+        url.searchParams.delete("id");
+        window.history.replaceState({}, "", url.toString());
+      }
     }
-  }, [overlay.mode, mounted, activeInquiry]);
+  }, [overlay.mode]);
 
   // Status counts for badges
   const statusCounts = useMemo(() => {

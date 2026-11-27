@@ -65,6 +65,13 @@ type ActiveTab =
   | "messages"
   | "backup_restore";
 
+let clientItemSeq = 0;
+
+function createClientItemId(prefix: string): string {
+  clientItemSeq += 1;
+  return `${prefix}-${Date.now()}-${clientItemSeq}`;
+}
+
 export default function AdminWebsiteControllerPage() {
   const {
     content,
@@ -626,7 +633,7 @@ export default function AdminWebsiteControllerPage() {
   // Services FAQ helpers
   const handleAddServiceFaq = () => {
     const newFaq: FAQContent = {
-      id: `faq-${Date.now()}`,
+      id: createClientItemId("faq"),
       q: "New Technical Specification Question",
       a: "Detailed architectural breakdown and compliance guarantee provided by our senior engineering leads.",
     };
@@ -663,7 +670,7 @@ export default function AdminWebsiteControllerPage() {
 
   const handleAddProject = () => {
     const newProject: ProjectContent = {
-      id: `proj-${Date.now()}`,
+      id: createClientItemId("proj"),
       title: "New Client Engagement",
       category: "ai",
       metrics: "In production",
@@ -2565,6 +2572,125 @@ export default function AdminWebsiteControllerPage() {
                     onChange={(e) => handleUpdateAboutValue(val.id, "description", e.target.value)}
                     className="w-full p-2.5 rounded-lg border border-slate-200 text-xs text-slate-700 bg-white leading-relaxed"
                   />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 5 Engineering Leadership Profiles (E-E-A-T) */}
+          <div className="bg-white rounded-2xl p-6 sm:p-8 border border-slate-200/70 shadow-[0_4px_20px_rgba(0,0,0,0.02)] space-y-6">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-5">
+              <div>
+                <h2 className="text-lg font-bold text-slate-950">
+                  Engineering Leadership ({aboutPage.teamMembers?.length || 0})
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+                  Powers visible leadership bios on /about and Person Schema.org E-E-A-T entities.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const current = aboutPage.teamMembers || [];
+                  updateAboutPage({
+                    teamMembers: [
+                      ...current,
+                      {
+                        id: `team-${Date.now()}`,
+                        name: "Principal Engineer",
+                        role: "Systems Architect",
+                        bio: "Designs and delivers distributed cloud, web, and AI pipelines alongside client teams.",
+                        specialties: ["System Architecture", "Production Operations"],
+                      },
+                    ],
+                  });
+                }}
+                className="min-h-[40px] px-3.5 py-2 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold text-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Leader</span>
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {(aboutPage.teamMembers || []).map((member, mIdx) => (
+                <div key={member.id} className="p-4 rounded-xl bg-slate-50 border border-slate-200/70 space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center">
+                    <input
+                      type="text"
+                      value={member.name}
+                      onChange={(e) => {
+                        const updated = [...(aboutPage.teamMembers || [])];
+                        updated[mIdx] = { ...updated[mIdx], name: e.target.value };
+                        updateAboutPage({ teamMembers: updated });
+                      }}
+                      placeholder="Full Name"
+                      className="sm:col-span-5 min-h-[38px] px-3 py-1 rounded-lg border border-slate-200 text-sm font-bold text-slate-900 bg-white"
+                    />
+                    <input
+                      type="text"
+                      value={member.role}
+                      onChange={(e) => {
+                        const updated = [...(aboutPage.teamMembers || [])];
+                        updated[mIdx] = { ...updated[mIdx], role: e.target.value };
+                        updateAboutPage({ teamMembers: updated });
+                      }}
+                      placeholder="Role / Title"
+                      className="sm:col-span-6 min-h-[38px] px-3 py-1 rounded-lg border border-slate-200 text-xs font-medium text-slate-700 bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const updated = (aboutPage.teamMembers || []).filter((_, i) => i !== mIdx);
+                        updateAboutPage({ teamMembers: updated });
+                      }}
+                      className="sm:col-span-1 text-slate-400 hover:text-rose-600 p-2 cursor-pointer"
+                      title="Delete leader profile"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <textarea
+                    rows={2}
+                    value={member.bio}
+                    onChange={(e) => {
+                      const updated = [...(aboutPage.teamMembers || [])];
+                      updated[mIdx] = { ...updated[mIdx], bio: e.target.value };
+                      updateAboutPage({ teamMembers: updated });
+                    }}
+                    placeholder="Concise technical biography..."
+                    className="w-full p-2.5 rounded-lg border border-slate-200 text-xs text-slate-700 bg-white"
+                  />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <input
+                      type="url"
+                      value={member.linkedIn || ""}
+                      onChange={(e) => {
+                        const updated = [...(aboutPage.teamMembers || [])];
+                        updated[mIdx] = { ...updated[mIdx], linkedIn: e.target.value };
+                        updateAboutPage({ teamMembers: updated });
+                      }}
+                      placeholder="LinkedIn URL (https://linkedin.com/in/...)"
+                      className="min-h-[36px] px-3 py-1 rounded-lg border border-slate-200 text-xs bg-white font-mono"
+                    />
+                    <input
+                      type="text"
+                      value={(member.specialties || []).join(", ")}
+                      onChange={(e) => {
+                        const updated = [...(aboutPage.teamMembers || [])];
+                        updated[mIdx] = {
+                          ...updated[mIdx],
+                          specialties: e.target.value
+                            .split(",")
+                            .map((s) => s.trim())
+                            .filter(Boolean),
+                        };
+                        updateAboutPage({ teamMembers: updated });
+                      }}
+                      placeholder="Specialties (comma-separated)"
+                      className="min-h-[36px] px-3 py-1 rounded-lg border border-slate-200 text-xs bg-white"
+                    />
+                  </div>
                 </div>
               ))}
             </div>

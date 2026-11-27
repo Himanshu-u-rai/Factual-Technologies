@@ -549,25 +549,6 @@ export async function refreshAuditLogs(): Promise<AuditLog[]> {
   return memoryAuditLogs;
 }
 
-export function clearAuditLogs(): void {
-  memoryAuditLogs = [];
-  notify();
-
-  void (async () => {
-    const res = await fetch("/api/admin/audit-logs", {
-      method: "DELETE",
-      credentials: "same-origin",
-    });
-    if (res.ok) {
-      const data = (await res.json()) as { logs?: AuditLog[] };
-      if (Array.isArray(data.logs)) {
-        memoryAuditLogs = data.logs;
-        notify();
-      }
-    }
-  })();
-}
-
 // ---------------- SETTINGS ----------------
 
 export function getSettings(): SystemSettings {

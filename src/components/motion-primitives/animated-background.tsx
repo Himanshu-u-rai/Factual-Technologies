@@ -5,15 +5,24 @@ import {
   Children,
   cloneElement,
   ReactElement,
-  useEffect,
+  ReactNode,
   useState,
   useId,
 } from 'react';
 
+type AnimatedBackgroundChildProps = {
+  'data-id': string;
+  className?: string;
+  'data-checked'?: string;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
+  onClick?: () => void;
+};
+
 export type AnimatedBackgroundProps = {
   children:
-    | ReactElement<{ 'data-id': string }>[]
-    | ReactElement<{ 'data-id': string }>;
+    | ReactElement<AnimatedBackgroundChildProps>[]
+    | ReactElement<AnimatedBackgroundChildProps>;
   defaultValue?: string;
   onValueChange?: (newActiveId: string | null) => void;
   className?: string;
@@ -29,8 +38,16 @@ export function AnimatedBackground({
   transition,
   enableHover = false,
 }: AnimatedBackgroundProps) {
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(defaultValue ?? null);
+  const [prevDefaultValue, setPrevDefaultValue] = useState(defaultValue);
   const uniqueId = useId();
+
+  if (prevDefaultValue !== defaultValue) {
+    setPrevDefaultValue(defaultValue);
+    if (defaultValue !== undefined) {
+      setActiveId(defaultValue);
+    }
+  }
 
   const handleSetActiveId = (id: string | null) => {
     setActiveId(id);
@@ -40,13 +57,7 @@ export function AnimatedBackground({
     }
   };
 
-  useEffect(() => {
-    if (defaultValue !== undefined) {
-      setActiveId(defaultValue);
-    }
-  }, [defaultValue]);
-
-  return Children.map(children, (child: any, index) => {
+  return Children.map(children, (child: ReactElement<AnimatedBackgroundChildProps & { children?: ReactNode }>, index) => {
     const id = child.props['data-id'];
 
     const interactionProps = enableHover

@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { NextResponse } from "next/server";
 import {
+  AnalyticsProvider,
   INITIAL_AUDIT_LOGS,
   INITIAL_INQUIRIES,
   INITIAL_SETTINGS,
@@ -15,8 +16,10 @@ import {
   sanitizeSettingsForClient,
 } from "@/lib/server/auth";
 import {
+  escapeHtml,
   getClientIp,
   isSafeExternalWebhookUrl,
+  resolveAndAssertSafeWebhookUrl,
   sha256Hex,
   verifyPassword,
 } from "@/lib/server/crypto";
@@ -101,6 +104,16 @@ export async function PUT(req: Request) {
       typeof body.sessionTimeoutMinutes === "number"
         ? Math.min(1440, Math.max(5, Math.round(body.sessionTimeoutMinutes)))
         : current.sessionTimeoutMinutes,
+    indexNowKey: current.indexNowKey,
+    analyticsProvider: (["none", "ga4", "plausible", "umami"].includes(
+      String(body.analyticsProvider || "")
+    )
+      ? body.analyticsProvider
+      : current.analyticsProvider || "none") as AnalyticsProvider,
+    analyticsId:
+      body.analyticsId !== undefined
+        ? sanitizeInput(String(body.analyticsId).trim()).slice(0, 120)
+        : current.analyticsId || "",
     complianceBadges: Array.isArray(body.complianceBadges)
       ? body.complianceBadges
       : current.complianceBadges,
@@ -174,9 +187,9 @@ export async function POST(req: Request) {
   if (action === "test_webhook") {
     const current = await getServerSettings();
     const targetUrl = sanitizeInput((body?.webhookUrl || current.webhookUrl || "").trim());
-    if (!targetUrl || !isSafeExternalWebhookUrl(targetUrl)) {
+    if (!targetUrl || !(await resolveAndAssertSafeWebhookUrl(targetUrl))) {
       return NextResponse.json(
-        { ok: false, error: "Provide a valid public HTTP(S) webhook endpoint." },
+        { ok: false, error: "Provide a valid public HTTP(S) webhook endpoint (private, local, and non-routable targets are blocked)." },
         { status: 400 }
       );
     }
@@ -191,6 +204,7 @@ export async function POST(req: Request) {
           timestamp: new Date().toISOString(),
           triggeredBy: auth.admin.email,
         }),
+        redirect: "error",
         signal: AbortSignal.timeout(4000),
       });
       const latencyMs = Date.now() - started;
@@ -236,7 +250,7 @@ export async function POST(req: Request) {
       to: target,
       subject: "Factual Technologies — SMTP Diagnostic Test",
       text: `SMTP delivery test triggered by ${auth.admin.email} at ${new Date().toISOString()}.`,
-      html: `<p><strong>SMTP Diagnostic Test</strong></p><p>Triggered by ${auth.admin.email} at ${new Date().toISOString()}.</p>`,
+      html: `<p><strong>SMTP Diagnostic Test</strong></p><p>Triggered by ${escapeHtml(auth.admin.email)} at ${new Date().toISOString()}.</p>`,
     });
 
     await recordAuditLog({
@@ -257,12 +271,30 @@ export async function POST(req: Request) {
   }
 
   if (action === "setup_totp") {
+    const existingRes = await dbQuery<{ two_factor_enabled: boolean }>(
+      "SELECT two_factor_enabled FROM admin_users WHERE id = $1",
+      [auth.admin.id]
+    );
+    if (existingRes.rows[0]?.two_factor_enabled) {
+      return NextResponse.json(
+        { error: "Two-factor authentication is already enabled. Verify and disable existing 2FA before re-enrolling." },
+        { status: 403 }
+      );
+    }
+
     const secret = generateTotpSecret();
     await dbQuery(
       `UPDATE admin_users SET two_factor_secret = $2, two_factor_enabled = false, updated_at = NOW() WHERE id = $1`,
       [auth.admin.id, secret]
     );
     const otpAuthUri = buildOtpAuthUri(auth.admin.email, secret);
+    await recordAuditLog({
+      actor: auth.admin.email,
+      category: "Security",
+      action: "TOTP Setup Initiated",
+      ipAddress,
+      details: "Generated new pending TOTP enrollment secret.",
+    });
     return NextResponse.json({ ok: true, secret, otpAuthUri });
   }
 
@@ -299,7 +331,11 @@ export async function POST(req: Request) {
       details: "Enrolled authenticator app and enforced TOTP 2FA on admin sign-in.",
     });
 
-    return NextResponse.json({ ok: true, twoFactorEnabled: true, settings: updatedSettings });
+    return NextResponse.json({
+      ok: true,
+      twoFactorEnabled: true,
+      settings: sanitizeSettingsForClient(updatedSettings),
+    });
   }
 
   if (action === "disable_totp") {
@@ -338,7 +374,11 @@ export async function POST(req: Request) {
       details: "Removed TOTP authenticator secret and disabled 2FA challenge.",
     });
 
-    return NextResponse.json({ ok: true, twoFactorEnabled: false, settings: updatedSettings });
+    return NextResponse.json({
+      ok: true,
+      twoFactorEnabled: false,
+      settings: sanitizeSettingsForClient(updatedSettings),
+    });
   }
 
   if (action === "clear_rate_limits") {

@@ -137,10 +137,7 @@ export default function AdminLoginPage() {
   // Countdown lockout seconds client-side while server enforces PostgreSQL timer
   useEffect(() => {
     if (auth.step !== "locked_out") return;
-    if (auth.remainingSeconds <= 0) {
-      setAuth({ step: "idle" });
-      return;
-    }
+    const delayMs = auth.remainingSeconds <= 0 ? 0 : 1000;
     const timer = setTimeout(() => {
       setAuth((prev) =>
         prev.step === "locked_out"
@@ -149,7 +146,7 @@ export default function AdminLoginPage() {
             : { step: "locked_out", remainingSeconds: prev.remainingSeconds - 1 }
           : prev
       );
-    }, 1000);
+    }, delayMs);
     return () => clearTimeout(timer);
   }, [auth]);
 

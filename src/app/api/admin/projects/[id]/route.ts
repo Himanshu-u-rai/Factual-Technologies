@@ -4,6 +4,8 @@ import { requireAdmin } from "@/lib/server/auth";
 import { DbProjectRow, mapRowToCaseStudy } from "@/lib/server/content";
 import { getClientIp } from "@/lib/server/crypto";
 import { dbQuery, recordAuditLog } from "@/lib/server/db";
+import { getCaseStudySlug } from "@/lib/seo-pillars";
+import { submitUrlsToIndexNow } from "@/lib/server/indexnow";
 
 function normalizeCategory(value?: string): ProjectCategory {
   if (value === "ai" || value === "web" || value === "cloud" || value === "mobile") {
@@ -101,7 +103,19 @@ export async function PATCH(
     details: `Updated case study "${nextTitle}" (${id}).`,
   });
 
-  return NextResponse.json({ ok: true, project: mapRowToCaseStudy(updated.rows[0]) });
+  const updatedProject = mapRowToCaseStudy(updated.rows[0]);
+  if (updatedProject.published) {
+    void submitUrlsToIndexNow(
+      ["/work", `/work/${getCaseStudySlug(updatedProject)}`, "/sitemap.xml"],
+      {
+        actor: auth.admin.email,
+        ipAddress: getClientIp(req),
+        quiet: true,
+      }
+    );
+  }
+
+  return NextResponse.json({ ok: true, project: updatedProject });
 }
 
 /** Deletes a case study from PostgreSQL. */

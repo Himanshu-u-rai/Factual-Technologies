@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useMemo, useCallback } from "react";
+import React, { useEffect, useState, useMemo, useCallback, useSyncExternalStore } from "react";
 import Image from "next/image";
 import {
   FolderKanban,
@@ -116,9 +116,11 @@ type ModalState =
   | { mode: "editing"; project: CaseStudy; formData: FormDataShape; error: string | null }
   | { mode: "confirming_delete"; projectId: string };
 
+const emptySubscribe = () => () => {};
+
 export default function ProjectsCMSPage() {
-  const [projects, setProjects] = useState<CaseStudy[]>([]);
-  const [mounted, setMounted] = useState(false);
+  const [projects, setProjects] = useState<CaseStudy[]>(() => getProjects());
+  const mounted = useSyncExternalStore(emptySubscribe, () => true, () => false);
 
   // Filters
   const [categoryFilter, setCategoryFilter] = useState<ProjectCategory | "all">("all");
@@ -157,13 +159,11 @@ export default function ProjectsCMSPage() {
 
   // Sync with store
   useEffect(() => {
-    setMounted(true);
     document.title = "Case Studies & Portfolio CMS | Factual Console";
     const syncProjects = () => {
       setProjects(getProjects());
     };
 
-    syncProjects();
     const unsub = subscribe(syncProjects);
     return () => unsub();
   }, []);

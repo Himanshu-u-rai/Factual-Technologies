@@ -1,0 +1,6 @@
+Contact: https://factualtechnologies.tech/contact
+Contact: mailto:security@factualtechnologies.tech
+Canonical: https://factualtechnologies.tech/.well-known/security.txt
+Policy: https://github.com/Himanshu-u-rai/Factual-Technologies/blob/main/SECURITY.md
+Preferred-Languages: en
+Expires: 2027-11-26T23:59:59Z

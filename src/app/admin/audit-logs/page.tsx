@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef, useSyncExternalStore } from "react";
 import {
   ShieldCheck,
   Shield,
@@ -28,7 +28,6 @@ import {
   Play,
   Pause,
   Zap,
-  Trash2,
   Inbox,
   Lock,
   Radio,
@@ -39,7 +38,6 @@ import {
 import {
   getAuditLogs,
   exportAuditLogsCSV,
-  clearAuditLogs,
   refreshAuditLogs,
   subscribe,
   AuditLog,
@@ -50,12 +48,13 @@ type TimeFilter = "all" | "24h" | "7d";
 
 type AuditOverlayState =
   | { mode: "idle" }
-  | { mode: "inspecting"; log: AuditLog }
-  | { mode: "confirm_purge" };
+  | { mode: "inspecting"; log: AuditLog };
+
+const emptySubscribe = () => () => {};
 
 export default function AuditLogsPage() {
-  const [logs, setLogs] = useState<AuditLog[]>([]);
-  const [mounted, setMounted] = useState(false);
+  const [logs, setLogs] = useState<AuditLog[]>(() => getAuditLogs());
+  const mounted = useSyncExternalStore(emptySubscribe, () => true, () => false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>("All");
   const [selectedTimeFilter, setSelectedTimeFilter] = useState<TimeFilter>("all");
@@ -65,13 +64,21 @@ export default function AuditLogsPage() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date>(new Date());
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date>(() => new Date());
+  const [prevFilterKey, setPrevFilterKey] = useState("");
 
   const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
   const copyTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const inspectLog = overlay.mode === "inspecting" ? overlay.log : null;
-  const showPurgeConfirm = overlay.mode === "confirm_purge";
+
+  const filterKey = `${selectedCategory}|${selectedTimeFilter}|${searchQuery}|${pageSize}`;
+  if (prevFilterKey !== filterKey) {
+    setPrevFilterKey(filterKey);
+    if (currentPage !== 1) {
+      setCurrentPage(1);
+    }
+  }
 
   // Dynamic Page Title & timer cleanup
   useEffect(() => {
@@ -88,16 +95,13 @@ export default function AuditLogsPage() {
     toastTimerRef.current = setTimeout(() => setToastMessage(null), 3200);
   }, []);
 
-  // Initial fetch and gated live stream subscription
+  // Gated live stream subscription
   useEffect(() => {
-    setMounted(true);
+    if (!isLiveStreaming) return;
     const syncLogs = () => {
       setLogs(getAuditLogs());
       setLastRefreshedAt(new Date());
     };
-
-    syncLogs();
-    if (!isLiveStreaming) return;
     const unsub = subscribe(syncLogs);
     return () => unsub();
   }, [isLiveStreaming]);
@@ -257,7 +261,7 @@ export default function AuditLogsPage() {
   }, [logs]);
 
   const filteredLogs = useMemo(() => {
-    const now = Date.now();
+    const referenceMs = lastRefreshedAt.getTime();
     return logs.filter((log) => {
       // Category filter
       if (selectedCategory !== "All" && log.category !== selectedCategory) {
@@ -267,7 +271,7 @@ export default function AuditLogsPage() {
       // Time range filter
       if (selectedTimeFilter !== "all") {
         const logTime = new Date(log.timestamp).getTime();
-        const diffHours = (now - logTime) / (1000 * 60 * 60);
+        const diffHours = (referenceMs - logTime) / (1000 * 60 * 60);
         if (selectedTimeFilter === "24h" && diffHours > 24) return false;
         if (selectedTimeFilter === "7d" && diffHours > 168) return false;
       }
@@ -285,7 +289,7 @@ export default function AuditLogsPage() {
 
       return true;
     });
-  }, [logs, selectedCategory, selectedTimeFilter, searchQuery]);
+  }, [logs, selectedCategory, selectedTimeFilter, searchQuery, lastRefreshedAt]);
 
   // Pagination calculation
   const totalPages = Math.ceil(filteredLogs.length / pageSize) || 1;
@@ -293,11 +297,6 @@ export default function AuditLogsPage() {
     const start = (currentPage - 1) * pageSize;
     return filteredLogs.slice(start, start + pageSize);
   }, [filteredLogs, currentPage, pageSize]);
-
-  // Reset page when filter changes
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [selectedCategory, selectedTimeFilter, searchQuery, pageSize]);
 
   // CSV Export handler
   const handleExportCSV = () => {
@@ -335,17 +334,6 @@ export default function AuditLogsPage() {
     setLogs(latest);
     setLastRefreshedAt(new Date());
     showToast("Synchronized audit ledger from PostgreSQL.");
-  };
-
-  // Purge handler
-  const handlePurgeLogs = () => {
-    clearAuditLogs();
-    setOverlay({ mode: "idle" });
-    if (!isLiveStreaming) {
-      setLogs(getAuditLogs());
-      setLastRefreshedAt(new Date());
-    }
-    showToast("Audit history reset in PostgreSQL.");
   };
 
   if (!mounted) {
@@ -423,16 +411,14 @@ export default function AuditLogsPage() {
             <span>Export CSV</span>
           </button>
 
-          {/* Purge Buffer (Ghost / Subtle Action) */}
-          <button
-            type="button"
-            onClick={() => setOverlay({ mode: "confirm_purge" })}
-            className="min-h-[44px] px-3.5 py-2 rounded-xl text-slate-600 hover:text-rose-600 hover:bg-rose-50 border border-slate-200/80 transition-colors flex items-center gap-1.5 text-xs font-semibold cursor-pointer focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:outline-none"
-            title="Reset Buffer"
+          {/* Immutable Append-Only Indicator */}
+          <div
+            className="min-h-[44px] px-3.5 py-2 rounded-xl text-emerald-700 bg-emerald-50/70 border border-emerald-200/80 flex items-center gap-1.5 text-xs font-semibold"
+            title="Audit logs are strictly append-only and cannot be purged"
           >
-            <Trash2 className="w-4 h-4" />
-            <span className="hidden sm:inline">Purge</span>
-          </button>
+            <Lock className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Immutable</span>
+          </div>
         </div>
       </div>
 
@@ -1134,48 +1120,6 @@ export default function AuditLogsPage() {
                 className="min-h-[44px] px-6 py-2 text-xs sm:text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-xs transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
               >
                 Close Inspector
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 6. Purge Safety Confirmation Modal */}
-      {showPurgeConfirm && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white border border-slate-200 p-6 space-y-4 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0 border border-rose-200/80">
-                <AlertCircle className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="font-bold text-slate-950 text-base font-display">
-                  Purge Local Audit Log Buffer?
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Irreversible Administrative Operation
-                </p>
-              </div>
-            </div>
-
-            <p className="text-xs text-slate-600 leading-relaxed">
-              This will flush the local 100-event memory buffer and start a fresh immutable sequence. An immutable purge audit log will automatically be recorded as event #1.
-            </p>
-
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setOverlay({ mode: "idle" })}
-                className="min-h-[44px] px-5 py-2 rounded-xl border border-slate-200/80 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:outline-none"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handlePurgeLogs}
-                className="min-h-[44px] px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-rose-600 focus-visible:ring-offset-2"
-              >
-                Confirm Purge Buffer
               </button>
             </div>
           </div>

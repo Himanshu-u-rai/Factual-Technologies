@@ -8,6 +8,7 @@ export interface ShowcaseImageProps {
   alt: string;
   ratio?: '16/10' | '16/9' | '4/3';
   className?: string;
+  priority?: boolean;
 }
 
 const RATIO_CLASSES = {
@@ -22,6 +23,7 @@ export function ShowcaseImage({
   alt,
   ratio = '16/10',
   className = '',
+  priority = false,
 }: ShowcaseImageProps) {
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const ratioClass = RATIO_CLASSES[ratio];
@@ -46,7 +48,8 @@ export function ShowcaseImage({
       <img
         src={validSrc}
         alt={alt}
-        loading="lazy"
+        loading={priority ? "eager" : "lazy"}
+        decoding="async"
         onError={() => setFailedSrc(validSrc)}
         className="w-full h-full object-cover object-center"
       />
@@ -89,7 +92,7 @@ export function PortraitAvatar({ src, name, size = 'md' }: PortraitAvatarProps) 
     <img
       src={validSrc}
       alt={name}
-      loading="lazy"
+      decoding="async"
       onError={() => setFailedSrc(validSrc)}
       className={`${sizeClass} rounded-full object-cover object-top ring-1 ring-slate-200 shrink-0 bg-slate-100`}
     />
